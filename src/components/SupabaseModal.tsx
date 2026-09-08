@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS public.investments (
     CONSTRAINT check_maturity_after_start CHECK (maturity_date > start_date)
 );
 
+-- 3. Safely Add Missing Columns (if table was created with older schema)
+ALTER TABLE public.investments 
+ADD COLUMN IF NOT EXISTS status investment_status NOT NULL DEFAULT 'active',
+ADD COLUMN IF NOT EXISTS currency VARCHAR(5) NOT NULL DEFAULT 'INR',
+ADD COLUMN IF NOT EXISTS tax_deduction_rate_pct NUMERIC(5, 2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS notes TEXT,
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 -- 3. Trigger for updated_at
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
@@ -97,6 +106,9 @@ DROP POLICY IF EXISTS "Allow anon read/write for guest mode" ON public.investmen
 CREATE POLICY "Allow anon read/write for guest mode"
 ON public.investments FOR ALL TO anon
 USING (user_id IS NULL) WITH CHECK (user_id IS NULL);
+
+-- Refresh PostgREST schema cache
+NOTIFY pgrst, 'reload schema';
 `;
 
 export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose }) => {

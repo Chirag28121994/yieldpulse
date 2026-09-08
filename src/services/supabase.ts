@@ -3,6 +3,16 @@ import { Investment, SupabaseConfig } from '../types/investment';
 
 let supabaseClient: SupabaseClient | null = null;
 
+export function getInitialSupabaseConfig(): SupabaseConfig {
+  const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  return {
+    url: envUrl,
+    anonKey: envKey,
+    isConnected: Boolean(envUrl && envKey),
+  };
+}
+
 export function getSupabaseClient(config?: SupabaseConfig): SupabaseClient | null {
   // 1. If explicit config passed and valid, reinitialize or use it
   if (config?.url && config?.anonKey) {
@@ -21,12 +31,10 @@ export function getSupabaseClient(config?: SupabaseConfig): SupabaseClient | nul
   }
 
   // 3. Fallback to Vite env variables if present
-  const envUrl = import.meta.env.VITE_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-  if (envUrl && envKey) {
+  const envConfig = getInitialSupabaseConfig();
+  if (envConfig.isConnected) {
     try {
-      supabaseClient = createClient(envUrl, envKey);
+      supabaseClient = createClient(envConfig.url, envConfig.anonKey);
       return supabaseClient;
     } catch (err) {
       console.error('Failed to initialize Supabase from env:', err);

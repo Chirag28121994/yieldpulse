@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { Investment, PortfolioAggregateMetrics, SupabaseConfig } from '../types/investment';
 import { computePortfolioMetrics } from '../utils/calculations';
 import { StorageService } from '../services/storage';
-import { getSupabaseClient, SupabaseService } from '../services/supabase';
+import { getSupabaseClient, SupabaseService, getInitialSupabaseConfig } from '../services/supabase';
 import { INITIAL_SAMPLE_INVESTMENTS } from '../utils/sampleData';
 
 interface InvestmentContextType {
@@ -31,10 +31,10 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [currency, setCurrencyState] = useState<string>('INR');
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({
-    url: '',
-    anonKey: '',
-    isConnected: false,
+  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
+    const savedConfig = StorageService.getSupabaseConfig();
+    const envConfig = getInitialSupabaseConfig();
+    return (savedConfig.url && savedConfig.anonKey) ? savedConfig : envConfig;
   });
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
@@ -44,14 +44,19 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrencyState(savedCurrency);
 
     const savedConfig = StorageService.getSupabaseConfig();
-    setSupabaseConfig(savedConfig);
+    const envConfig = getInitialSupabaseConfig();
+    const effectiveConfig: SupabaseConfig = (savedConfig.url && savedConfig.anonKey)
+      ? savedConfig
+      : envConfig;
+
+    setSupabaseConfig(effectiveConfig);
 
     const loadInitialData = async () => {
       setLoading(true);
-      // If user had saved connected Supabase credentials, try loading from Supabase
-      if (savedConfig.isConnected && savedConfig.url && savedConfig.anonKey) {
+      // If user has Supabase credentials (from env or localStorage), connect directly
+      if (effectiveConfig.isConnected && effectiveConfig.url && effectiveConfig.anonKey) {
         try {
-          const client = getSupabaseClient(savedConfig);
+          const client = getSupabaseClient(effectiveConfig);
           if (client) {
             const data = await SupabaseService.fetchInvestments(client);
             setInvestments(data);

@@ -66,3 +66,8 @@ export interface SupabaseConfig {
   anonKey: string;
   isConnected: boolean;
 }
+
+export interface AuthUser {
+  id: string;
+  email?: string;
+}

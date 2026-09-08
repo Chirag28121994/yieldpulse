@@ -91,10 +91,11 @@ CREATE INDEX IF NOT EXISTS idx_investments_category ON public.investments(catego
 ALTER TABLE public.investments ENABLE ROW LEVEL SECURITY;
 
 -- 7. RLS Policies
+-- Authenticated users can manage their own investments AND claim unassigned legacy records
 DROP POLICY IF EXISTS "Users can manage their own investments" ON public.investments;
 CREATE POLICY "Users can manage their own investments"
 ON public.investments FOR ALL TO authenticated
-USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+USING (auth.uid() = user_id OR user_id IS NULL) WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Allow anon read/write for guest mode" ON public.investments;
 CREATE POLICY "Allow anon read/write for guest mode"

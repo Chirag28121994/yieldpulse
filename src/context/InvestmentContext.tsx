@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { Investment, PortfolioAggregateMetrics, SupabaseConfig } from '../types/investment';
+import { Investment, PortfolioAggregateMetrics, SupabaseConfig, AuthUser } from '../types/investment';
 import { computePortfolioMetrics } from '../utils/calculations';
 import { StorageService } from '../services/storage';
 import { getSupabaseClient, SupabaseService, getInitialSupabaseConfig } from '../services/supabase';
@@ -13,6 +13,7 @@ interface InvestmentContextType {
   supabaseConfig: SupabaseConfig;
   isSupabaseConnected: boolean;
   isSyncing: boolean;
+  currentUser: AuthUser | null;
   portfolioMetrics: PortfolioAggregateMetrics;
   addInvestment: (inv: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   updateInvestment: (id: string, updates: Partial<Investment>) => Promise<void>;
@@ -23,6 +24,9 @@ interface InvestmentContextType {
   resetToSampleData: () => void;
   exportDataJson: () => void;
   importDataJson: (jsonString: string) => boolean;
+  signIn: (email: string, password: string) => Promise<{ user: AuthUser | null; error: string | null }>;
+  signUp: (email: string, password: string) => Promise<{ user: AuthUser | null; error: string | null }>;
+  signOut: () => Promise<void>;
 }
 
 const InvestmentContext = createContext<InvestmentContextType | undefined>(undefined);
@@ -31,6 +35,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [currency, setCurrencyState] = useState<string>('INR');
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const savedConfig = StorageService.getSupabaseConfig();
     const envConfig = getInitialSupabaseConfig();
@@ -51,18 +56,23 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setSupabaseConfig(effectiveConfig);
 
+    const client = getSupabaseClient(effectiveConfig);
+
     const loadInitialData = async () => {
       setLoading(true);
-      // If user has Supabase credentials (from env or localStorage), connect directly
-      if (effectiveConfig.isConnected && effectiveConfig.url && effectiveConfig.anonKey) {
+      if (effectiveConfig.isConnected && effectiveConfig.url && effectiveConfig.anonKey && client) {
         try {
-          const client = getSupabaseClient(effectiveConfig);
-          if (client) {
-            const data = await SupabaseService.fetchInvestments(client);
-            setInvestments(data);
-            setLoading(false);
-            return;
+          // Check existing active user session
+          const user = await SupabaseService.getSessionUser(client);
+          if (user) {
+            setCurrentUser(user);
+            // Claim any unassigned legacy investments to ensure zero data loss
+            await SupabaseService.claimUnassignedInvestments(client, user.id);
           }
+          const data = await SupabaseService.fetchInvestments(client);
+          setInvestments(data);
+          setLoading(false);
+          return;
         } catch (err) {
           console.warn('Could not fetch from Supabase on start, falling back to localStorage:', err);
         }
@@ -75,6 +85,27 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     loadInitialData();
+
+    // Listen to Supabase Auth state changes
+    if (client) {
+      const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
+        if (session?.user) {
+          const user: AuthUser = { id: session.user.id, email: session.user.email };
+          setCurrentUser(user);
+          // Claim legacy unassigned records
+          await SupabaseService.claimUnassignedInvestments(client, user.id);
+          const data = await SupabaseService.fetchInvestments(client);
+          setInvestments(data);
+        } else if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          setInvestments([]);
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, []);
 
   const setCurrency = (c: string) => {
@@ -97,6 +128,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const newInvestment: Investment = {
       ...data,
       id: newId,
+      userId: currentUser?.id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -296,6 +328,44 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
+  // Auth handlers
+  const signIn = useCallback(async (email: string, password: string) => {
+    const client = getSupabaseClient(supabaseConfig);
+    if (!client) return { user: null, error: 'Database not connected' };
+    const res = await SupabaseService.signInWithPassword(client, email, password);
+    if (res.user) {
+      setCurrentUser(res.user);
+      // Auto-claim unassigned data to prevent any data loss
+      await SupabaseService.claimUnassignedInvestments(client, res.user.id);
+      const data = await SupabaseService.fetchInvestments(client);
+      setInvestments(data);
+    }
+    return res;
+  }, [supabaseConfig]);
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    const client = getSupabaseClient(supabaseConfig);
+    if (!client) return { user: null, error: 'Database not connected' };
+    const res = await SupabaseService.signUpWithPassword(client, email, password);
+    if (res.user) {
+      setCurrentUser(res.user);
+      // Auto-claim unassigned data to prevent any data loss
+      await SupabaseService.claimUnassignedInvestments(client, res.user.id);
+      const data = await SupabaseService.fetchInvestments(client);
+      setInvestments(data);
+    }
+    return res;
+  }, [supabaseConfig]);
+
+  const signOut = useCallback(async () => {
+    const client = getSupabaseClient(supabaseConfig);
+    if (client) {
+      await SupabaseService.signOut(client);
+    }
+    setCurrentUser(null);
+    setInvestments([]);
+  }, [supabaseConfig]);
+
   // Calculate live portfolio metrics
   const portfolioMetrics = useMemo(() => {
     return computePortfolioMetrics(investments);
@@ -311,6 +381,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabaseConfig,
         isSupabaseConnected,
         isSyncing,
+        currentUser,
         portfolioMetrics,
         addInvestment,
         updateInvestment,
@@ -321,6 +392,9 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         resetToSampleData,
         exportDataJson,
         importDataJson,
+        signIn,
+        signUp,
+        signOut,
       }}
     >
       {children}

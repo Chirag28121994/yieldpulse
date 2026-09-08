@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Investment, SupabaseConfig } from '../types/investment';
+import { Investment, SupabaseConfig, AuthUser } from '../types/investment';
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -74,6 +74,9 @@ export function mapInvestmentToDb(inv: Partial<Investment>): any {
   const data: any = {};
   if (inv.id && UUID_REGEX.test(inv.id)) {
     data.id = inv.id;
+  }
+  if (inv.userId !== undefined && UUID_REGEX.test(inv.userId)) {
+    data.user_id = inv.userId;
   }
   if (inv.title !== undefined) data.title = inv.title;
   if (inv.institution !== undefined) data.institution = inv.institution;
@@ -168,6 +171,64 @@ export const SupabaseService = {
 
     if (error) {
       throw error;
+    }
+  },
+
+  // Auth Methods
+  async getSessionUser(client: SupabaseClient): Promise<AuthUser | null> {
+    try {
+      const { data: { session }, error } = await client.auth.getSession();
+      if (error || !session?.user) return null;
+      return {
+        id: session.user.id,
+        email: session.user.email,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  async signInWithPassword(client: SupabaseClient, email: string, password: string): Promise<{ user: AuthUser | null; error: string | null }> {
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) return { user: null, error: error.message };
+    if (!data.user) return { user: null, error: 'No user returned' };
+    return {
+      user: { id: data.user.id, email: data.user.email },
+      error: null
+    };
+  },
+
+  async signUpWithPassword(client: SupabaseClient, email: string, password: string): Promise<{ user: AuthUser | null; error: string | null }> {
+    const { data, error } = await client.auth.signUp({ email, password });
+    if (error) return { user: null, error: error.message };
+    if (!data.user) return { user: null, error: 'No user returned' };
+    return {
+      user: { id: data.user.id, email: data.user.email },
+      error: null
+    };
+  },
+
+  async signOut(client: SupabaseClient): Promise<void> {
+    await client.auth.signOut();
+  },
+
+  // Claim unassigned (user_id IS NULL) investments for the logged-in user
+  async claimUnassignedInvestments(client: SupabaseClient, userId: string): Promise<number> {
+    try {
+      const { data, error } = await client
+        .from('investments')
+        .update({ user_id: userId })
+        .is('user_id', null)
+        .select('id');
+
+      if (error) {
+        console.warn('Could not claim unassigned investments:', error);
+        return 0;
+      }
+      return data ? data.length : 0;
+    } catch (err) {
+      console.warn('Failed to claim legacy investments:', err);
+      return 0;
     }
   }
 };

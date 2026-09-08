@@ -6,7 +6,9 @@ import {
   Upload, 
   RefreshCw, 
   Layers,
-  Sparkles
+  Sparkles,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { useInvestments } from '../context/InvestmentContext';
 import { useToast } from './Toast';
@@ -14,14 +16,17 @@ import { useToast } from './Toast';
 interface HeaderProps {
   onOpenAddModal: () => void;
   onOpenSupabaseModal: () => void;
+  onOpenAuthModal: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenAddModal, onOpenSupabaseModal }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenAddModal, onOpenSupabaseModal, onOpenAuthModal }) => {
   const { 
     currency, 
     setCurrency, 
     isSupabaseConnected, 
     isSyncing, 
+    currentUser,
+    signOut,
     resetToSampleData, 
     exportDataJson, 
     importDataJson 
@@ -53,6 +58,13 @@ export const Header: React.FC<HeaderProps> = ({ onOpenAddModal, onOpenSupabaseMo
     if (window.confirm('Reset portfolio to realistic sample Fixed Deposits & bonds?')) {
       resetToSampleData();
       showToast('Portfolio reset to sample data', 'info');
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (window.confirm('Sign out of your private account?')) {
+      await signOut();
+      showToast('Signed out of your private portfolio', 'info');
     }
   };
 
@@ -163,6 +175,33 @@ export const Header: React.FC<HeaderProps> = ({ onOpenAddModal, onOpenSupabaseMo
               onChange={handleFileUpload}
             />
           </div>
+
+          {/* User Account / Auth Button */}
+          {currentUser ? (
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
+              <div className="w-5 h-5 rounded-full bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-[10px] font-bold text-brand-300">
+                {currentUser.email ? currentUser.email[0].toUpperCase() : 'U'}
+              </div>
+              <span className="hidden sm:inline text-slate-300 font-medium max-w-[110px] truncate" title={currentUser.email}>
+                {currentUser.email}
+              </span>
+              <button
+                onClick={handleSignOut}
+                title="Sign Out"
+                className="text-slate-400 hover:text-rose-400 p-0.5 rounded transition-colors ml-1"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onOpenAuthModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-700/80 text-slate-200 hover:border-brand-500/40 hover:text-white transition-colors"
+            >
+              <LogIn className="w-3.5 h-3.5 text-brand-400" />
+              <span>Sign In</span>
+            </button>
+          )}
 
           {/* Add Investment CTA */}
           <button

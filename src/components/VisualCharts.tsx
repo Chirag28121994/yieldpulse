@@ -92,10 +92,10 @@ export const VisualCharts: React.FC = () => {
     };
   }, [investments]);
 
-  // 3. Upcoming Maturities (Next 3)
+  // 3. Upcoming Maturities (Next 3 Fixed Income items)
   const upcomingMaturities = useMemo(() => {
     return investments
-      .filter(i => i.status === 'active')
+      .filter(i => i.status === 'active' && i.category !== 'mutual_fund')
       .map(inv => ({
         inv,
         metrics: computeInvestmentMetrics(inv)

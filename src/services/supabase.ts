@@ -47,6 +47,27 @@ export function getSupabaseClient(config?: SupabaseConfig): SupabaseClient | nul
 
 // Convert DB snake_case to frontend camelCase
 export function mapDbToInvestment(row: any): Investment {
+  let notes = row.notes || '';
+  let schemeCode = row.scheme_code || undefined;
+  let units = row.units !== null && row.units !== undefined ? Number(row.units) : undefined;
+  let buyNav = row.buy_nav !== null && row.buy_nav !== undefined ? Number(row.buy_nav) : undefined;
+
+  // Fallback: If metadata was stored in notes before SQL migration
+  if (notes.includes('__MF_META__')) {
+    try {
+      const match = notes.match(/__MF_META__:(\{.*?\})/);
+      if (match && match[1]) {
+        const meta = JSON.parse(match[1]);
+        schemeCode = schemeCode || meta.schemeCode;
+        units = units !== undefined ? units : meta.units;
+        buyNav = buyNav !== undefined ? buyNav : meta.buyNav;
+        notes = notes.replace(/__MF_META__:\{.*?\}/, '').trim();
+      }
+    } catch {
+      // Ignore parse failure
+    }
+  }
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -61,7 +82,10 @@ export function mapDbToInvestment(row: any): Investment {
     status: row.status,
     currency: row.currency || 'INR',
     taxDeductionRatePct: row.tax_deduction_rate_pct ? Number(row.tax_deduction_rate_pct) : 0,
-    notes: row.notes || '',
+    notes,
+    schemeCode,
+    units,
+    buyNav,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -85,11 +109,33 @@ export function mapInvestmentToDb(inv: Partial<Investment>): any {
   if (inv.annualRatePct !== undefined) data.annual_rate_pct = Number(inv.annualRatePct);
   if (inv.compounding !== undefined) data.compounding = inv.compounding;
   if (inv.startDate !== undefined) data.start_date = inv.startDate;
-  if (inv.maturityDate !== undefined) data.maturity_date = inv.maturityDate;
+  
+  if (inv.maturityDate) {
+    data.maturity_date = inv.maturityDate;
+  } else if (inv.category === 'mutual_fund') {
+    // Open-ended mutual fund: default to a horizon in 2076 to satisfy NOT NULL & check_maturity_after_start
+    data.maturity_date = '2076-12-31';
+  }
+
   if (inv.status !== undefined) data.status = inv.status;
   if (inv.currency !== undefined) data.currency = inv.currency;
   if (inv.taxDeductionRatePct !== undefined) data.tax_deduction_rate_pct = Number(inv.taxDeductionRatePct);
-  if (inv.notes !== undefined) data.notes = inv.notes;
+  
+  let notes = inv.notes || '';
+  if (inv.category === 'mutual_fund') {
+    if (inv.schemeCode !== undefined) data.scheme_code = inv.schemeCode;
+    if (inv.units !== undefined) data.units = Number(inv.units);
+    if (inv.buyNav !== undefined) data.buy_nav = Number(inv.buyNav);
+
+    // Resilient backup embedded in notes
+    const mfMeta = JSON.stringify({
+      schemeCode: inv.schemeCode,
+      units: inv.units,
+      buyNav: inv.buyNav,
+    });
+    notes = `${notes.replace(/__MF_META__:\{.*?\}/, '').trim()} __MF_META__:${mfMeta}`.trim();
+  }
+  data.notes = notes;
 
   return data;
 }
@@ -134,33 +180,68 @@ export const SupabaseService = {
     // On insert, let Postgres generate the authoritative UUID primary key
     delete dbPayload.id;
 
-    const { data, error } = await client
-      .from('investments')
-      .insert(dbPayload)
-      .select()
-      .single();
+    try {
+      const { data, error } = await client
+        .from('investments')
+        .insert(dbPayload)
+        .select()
+        .single();
 
-    if (error) {
-      throw error;
+      if (error) {
+        // Fallback: If PostgreSQL schema doesn't have scheme_code/units/buy_nav columns yet,
+        // retry inserting without them (data is safely preserved in notes!)
+        if (
+          error.message?.includes('column') &&
+          (error.message.includes('scheme_code') || error.message.includes('units') || error.message.includes('buy_nav'))
+        ) {
+          const stripped = { ...dbPayload };
+          delete stripped.scheme_code;
+          delete stripped.units;
+          delete stripped.buy_nav;
+          const retry = await client.from('investments').insert(stripped).select().single();
+          if (retry.error) throw retry.error;
+          return mapDbToInvestment(retry.data);
+        }
+        throw error;
+      }
+
+      return mapDbToInvestment(data);
+    } catch (err) {
+      throw err;
     }
-
-    return mapDbToInvestment(data);
   },
 
   async updateInvestment(client: SupabaseClient, id: string, updates: Partial<Investment>): Promise<Investment> {
     const dbPayload = mapInvestmentToDb(updates);
-    const { data, error } = await client
-      .from('investments')
-      .update(dbPayload)
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      const { data, error } = await client
+        .from('investments')
+        .update(dbPayload)
+        .eq('id', id)
+        .select()
+        .single();
 
-    if (error) {
-      throw error;
+      if (error) {
+        // Fallback for missing columns
+        if (
+          error.message?.includes('column') &&
+          (error.message.includes('scheme_code') || error.message.includes('units') || error.message.includes('buy_nav'))
+        ) {
+          const stripped = { ...dbPayload };
+          delete stripped.scheme_code;
+          delete stripped.units;
+          delete stripped.buy_nav;
+          const retry = await client.from('investments').update(stripped).eq('id', id).select().single();
+          if (retry.error) throw retry.error;
+          return mapDbToInvestment(retry.data);
+        }
+        throw error;
+      }
+
+      return mapDbToInvestment(data);
+    } catch (err) {
+      throw err;
     }
-
-    return mapDbToInvestment(data);
   },
 
   async deleteInvestment(client: SupabaseClient, id: string): Promise<void> {

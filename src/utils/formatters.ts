@@ -11,7 +11,11 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   AUD: 'AU$',
 };
 
-export function formatCurrency(amount: number, currency: string = 'INR', maximumFractionDigits: number = 2): string {
+export function formatCurrency(
+  amount: number,
+  currency: string = 'INR',
+  maximumFractionDigits: number = 2
+): string {
   const symbol = CURRENCY_SYMBOLS[currency] || currency + ' ';
   
   if (isNaN(amount) || amount === null || amount === undefined) {
@@ -27,6 +31,34 @@ export function formatCurrency(amount: number, currency: string = 'INR', maximum
   }).format(amount);
 
   return `${symbol}${formattedNum}`;
+}
+
+/**
+ * Format currency with explicit sign for positive and negative values (+₹X.XX or -₹X.XX)
+ */
+export function formatSignedCurrency(
+  amount: number,
+  currency: string = 'INR',
+  maximumFractionDigits: number = 2
+): string {
+  const isNegative = amount < 0;
+  const absFormatted = formatCurrency(Math.abs(amount), currency, maximumFractionDigits);
+  if (isNegative) {
+    return `-${absFormatted}`;
+  }
+  if (amount > 0) {
+    return `+${absFormatted}`;
+  }
+  return absFormatted;
+}
+
+/**
+ * Format percentage with explicit sign (+X.XX% or -X.XX%)
+ */
+export function formatSignedPct(val: number, decimals: number = 2): string {
+  if (isNaN(val) || val === null || val === undefined) return '0.00%';
+  const prefix = val > 0 ? '+' : '';
+  return `${prefix}${val.toFixed(decimals)}%`;
 }
 
 export function formatDate(dateStr: string): string {
@@ -63,11 +95,17 @@ export const CATEGORY_META: Record<InvestmentCategory, { label: string; color: s
     bg: 'bg-emerald-500/10',
     border: 'border-emerald-500/30'
   },
-  recurring_deposit: {
-    label: 'Recurring Deposit',
+  mutual_fund: {
+    label: 'Mutual Fund',
     color: 'text-cyan-400',
     bg: 'bg-cyan-500/10',
     border: 'border-cyan-500/30'
+  },
+  recurring_deposit: {
+    label: 'Recurring Deposit',
+    color: 'text-teal-400',
+    bg: 'bg-teal-500/10',
+    border: 'border-teal-500/30'
   },
   bonds: {
     label: 'Bonds / Debentures',

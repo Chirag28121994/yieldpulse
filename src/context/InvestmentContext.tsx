@@ -4,6 +4,7 @@ import { computePortfolioMetrics } from '../utils/calculations';
 import { StorageService } from '../services/storage';
 import { getSupabaseClient, SupabaseService, getInitialSupabaseConfig } from '../services/supabase';
 import { INITIAL_SAMPLE_INVESTMENTS } from '../utils/sampleData';
+import { getSchemeInfo } from '../services/mfApi';
 
 interface InvestmentContextType {
   investments: Investment[];
@@ -27,6 +28,7 @@ interface InvestmentContextType {
   signIn: (email: string, password: string) => Promise<{ user: AuthUser | null; error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ user: AuthUser | null; error: string | null }>;
   signOut: () => Promise<void>;
+  refreshMutualFundNavs: (list?: Investment[]) => Promise<void>;
 }
 
 const InvestmentContext = createContext<InvestmentContextType | undefined>(undefined);
@@ -42,6 +44,38 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return (savedConfig.url && savedConfig.anonKey) ? savedConfig : envConfig;
   });
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Background refresh for Mutual Funds NAVs
+  const refreshMutualFundNavs = useCallback(async (listToRefresh?: Investment[]) => {
+    const targetList = listToRefresh || investments;
+    const mfItems = targetList.filter(inv => inv.category === 'mutual_fund' && inv.schemeCode);
+    if (mfItems.length === 0) return;
+
+    try {
+      const updates: Record<string, Partial<Investment>> = {};
+      await Promise.allSettled(
+        mfItems.map(async (inv) => {
+          if (!inv.schemeCode) return;
+          const info = await getSchemeInfo(inv.schemeCode, true);
+          if (info && info.currentNav > 0) {
+            updates[inv.id] = {
+              currentNav: info.currentNav,
+              previousNav: info.previousNav,
+              navDate: info.navDate,
+            };
+          }
+        })
+      );
+
+      if (Object.keys(updates).length > 0) {
+        setInvestments(prev =>
+          prev.map(inv => updates[inv.id] ? { ...inv, ...updates[inv.id] } : inv)
+        );
+      }
+    } catch (err) {
+      console.warn('Failed to refresh MF NAVs:', err);
+    }
+  }, [investments]);
 
   // Initialize data on mount
   useEffect(() => {
@@ -71,6 +105,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const data = await SupabaseService.fetchInvestments(client);
             setInvestments(data);
             setLoading(false);
+            refreshMutualFundNavs(data);
             return;
           } else {
             // Not authenticated: hide private cloud portfolio
@@ -101,6 +136,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await SupabaseService.claimUnassignedInvestments(client, user.id);
           const data = await SupabaseService.fetchInvestments(client);
           setInvestments(data);
+          refreshMutualFundNavs(data);
         } else if (event === 'SIGNED_OUT') {
           setCurrentUser(null);
           setInvestments([]);
@@ -161,7 +197,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       StorageService.saveInvestments(updated);
       return updated;
     });
-  }, [isSupabaseConnected, supabaseConfig]);
+  }, [isSupabaseConnected, supabaseConfig, currentUser]);
 
   // Update Investment
   const updateInvestment = useCallback(async (id: string, updates: Partial<Investment>) => {
@@ -245,6 +281,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           const remoteData = await SupabaseService.fetchInvestments(client);
           setInvestments(remoteData);
+          refreshMutualFundNavs(remoteData);
         } catch (e) {
           console.warn('Connected but could not fetch investments yet:', e);
         }
@@ -255,7 +292,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setIsSyncing(false);
       return { success: false, message: testResult.message };
     }
-  }, []);
+  }, [refreshMutualFundNavs]);
 
   const disconnectSupabase = useCallback(() => {
     const disconnectedConfig: SupabaseConfig = {
@@ -344,9 +381,10 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await SupabaseService.claimUnassignedInvestments(client, res.user.id);
       const data = await SupabaseService.fetchInvestments(client);
       setInvestments(data);
+      refreshMutualFundNavs(data);
     }
     return res;
-  }, [supabaseConfig]);
+  }, [supabaseConfig, refreshMutualFundNavs]);
 
   const signUp = useCallback(async (email: string, password: string) => {
     const client = getSupabaseClient(supabaseConfig);
@@ -358,9 +396,10 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await SupabaseService.claimUnassignedInvestments(client, res.user.id);
       const data = await SupabaseService.fetchInvestments(client);
       setInvestments(data);
+      refreshMutualFundNavs(data);
     }
     return res;
-  }, [supabaseConfig]);
+  }, [supabaseConfig, refreshMutualFundNavs]);
 
   const signOut = useCallback(async () => {
     const client = getSupabaseClient(supabaseConfig);
@@ -400,6 +439,7 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         signIn,
         signUp,
         signOut,
+        refreshMutualFundNavs,
       }}
     >
       {children}

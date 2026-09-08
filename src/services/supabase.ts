@@ -67,10 +67,12 @@ export function mapDbToInvestment(row: any): Investment {
   };
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Convert frontend camelCase to DB snake_case
 export function mapInvestmentToDb(inv: Partial<Investment>): any {
   const data: any = {};
-  if (inv.id && !inv.id.startsWith('sample-') && !inv.id.startsWith('local-')) {
+  if (inv.id && UUID_REGEX.test(inv.id)) {
     data.id = inv.id;
   }
   if (inv.title !== undefined) data.title = inv.title;
@@ -126,6 +128,9 @@ export const SupabaseService = {
 
   async insertInvestment(client: SupabaseClient, investment: Investment): Promise<Investment> {
     const dbPayload = mapInvestmentToDb(investment);
+    // On insert, let Postgres generate the authoritative UUID primary key
+    delete dbPayload.id;
+
     const { data, error } = await client
       .from('investments')
       .insert(dbPayload)

@@ -86,7 +86,14 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Add Investment
   const addInvestment = useCallback(async (data: Omit<Investment, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newId = `inv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+
     const newInvestment: Investment = {
       ...data,
       id: newId,

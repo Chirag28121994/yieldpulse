@@ -68,19 +68,24 @@ export const InvestmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             setCurrentUser(user);
             // Claim any unassigned legacy investments to ensure zero data loss
             await SupabaseService.claimUnassignedInvestments(client, user.id);
+            const data = await SupabaseService.fetchInvestments(client);
+            setInvestments(data);
+            setLoading(false);
+            return;
+          } else {
+            // Not authenticated: hide private cloud portfolio
+            setCurrentUser(null);
+            setInvestments([]);
+            setLoading(false);
+            return;
           }
-          const data = await SupabaseService.fetchInvestments(client);
-          setInvestments(data);
-          setLoading(false);
-          return;
         } catch (err) {
-          console.warn('Could not fetch from Supabase on start, falling back to localStorage:', err);
+          console.warn('Could not fetch from Supabase on start:', err);
         }
       }
 
-      // Fallback: load from localStorage
-      const localData = StorageService.getInvestments();
-      setInvestments(localData);
+      // Not connected: empty
+      setInvestments([]);
       setLoading(false);
     };
 

@@ -10,7 +10,7 @@ import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
 import { SupabaseModal } from './components/SupabaseModal';
 import { AuthModal } from './components/AuthModal';
 import { Investment } from './types/investment';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Lock } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
   const { 
@@ -87,65 +87,70 @@ const DashboardContent: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
-        
-        {/* Guest / Private Mode Banner */}
-        {!currentUser && (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-lg backdrop-blur-md">
-            <div className="flex items-center gap-3 text-slate-300 text-center sm:text-left">
-              <div className="w-8 h-8 rounded-xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-400 shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-semibold text-white">Viewing Unsecured Ledger (Guest Mode)</span>
-                <p className="text-slate-400 text-[11px]">
-                  Sign in or create an account to lock this portfolio to your email with private Row Level Security.
-                </p>
-              </div>
+        {!currentUser ? (
+          /* Locked Private Portfolio Screen */
+          <div className="rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 p-8 sm:p-14 text-center max-w-xl mx-auto my-12 shadow-2xl backdrop-blur-xl">
+            <div className="w-16 h-16 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-400 mx-auto mb-5 shadow-lg shadow-brand-500/10">
+              <Lock className="w-8 h-8" />
             </div>
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="shrink-0 px-4 py-1.5 rounded-xl font-semibold bg-brand-500 hover:bg-brand-600 text-slate-950 transition-colors shadow-md shadow-brand-500/20"
-            >
-              Sign In / Lock Portfolio
-            </button>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mb-2">
+              Private Wealth & Investment Ledger
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed mb-8">
+              This portfolio is encrypted and protected with Supabase Authentication and PostgreSQL Row Level Security. Sign in to view and manage your Fixed Deposits and daily yields.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="w-full sm:w-auto px-7 py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-brand-500 to-emerald-500 hover:from-brand-600 hover:to-emerald-600 text-slate-950 shadow-xl shadow-brand-500/25 active:scale-95 transition-all"
+              >
+                Sign In / Unlock Portfolio
+              </button>
+            </div>
+            <div className="mt-8 pt-6 border-t border-slate-800/60 flex items-center justify-center gap-2 text-xs text-slate-500">
+              <ShieldCheck className="w-4 h-4 text-brand-400" />
+              <span>Multi-tenant Row Level Security Active</span>
+            </div>
           </div>
+        ) : (
+          /* Authenticated Private Dashboard */
+          <>
+            {/* Portfolio Summary KPI Cards */}
+            <section aria-label="Portfolio Summary">
+              <PortfolioSummary />
+            </section>
+
+            {/* Visual Analytics (Charts & Radar) */}
+            <section aria-label="Visual Analytics">
+              <VisualCharts />
+            </section>
+
+            {/* Investments Directory & List */}
+            <section aria-label="Investments Directory">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <span>Investments & Deposits Ledger</span>
+                    <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                      {investments.length} Total
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Live daily return accrual, compounding frequency, and tenure trackers
+                  </p>
+                </div>
+              </div>
+
+              <InvestmentList
+                investments={investments}
+                currency={currency}
+                onAddClick={handleOpenAdd}
+                onEdit={handleOpenEdit}
+                onDelete={handleOpenDelete}
+              />
+            </section>
+          </>
         )}
-
-        {/* Portfolio Summary KPI Cards */}
-        <section aria-label="Portfolio Summary">
-          <PortfolioSummary />
-        </section>
-
-        {/* Visual Analytics (Charts & Radar) */}
-        <section aria-label="Visual Analytics">
-          <VisualCharts />
-        </section>
-
-        {/* Investments Directory & List */}
-        <section aria-label="Investments Directory">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                <span>Investments & Deposits Ledger</span>
-                <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-                  {investments.length} Total
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400">
-                Live daily return accrual, compounding frequency, and tenure trackers
-              </p>
-            </div>
-          </div>
-
-          <InvestmentList
-            investments={investments}
-            currency={currency}
-            onAddClick={handleOpenAdd}
-            onEdit={handleOpenEdit}
-            onDelete={handleOpenDelete}
-          />
-        </section>
-
       </main>
 
       {/* Footer */}

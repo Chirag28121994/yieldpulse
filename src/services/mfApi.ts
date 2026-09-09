@@ -1,7 +1,8 @@
 /**
  * Mutual Fund API Service
- * Fetches free, public, real-time and historical NAV data for Indian Mutual Funds from api.mfapi.in
- * Includes local storage caching to minimize network usage and provide instant loading.
+ * Fetches free, public, real-time and historical NAV data for Indian Mutual Funds.
+ * Combines an integrated supplemental index for newly launched AMCs (e.g. JioBlackRock,
+ * Zerodha, Groww) with live AMFI data and mfapi endpoints.
  */
 
 export interface MfSearchItem {
@@ -48,6 +49,50 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // In-memory cache for fast search results
 const searchCache = new Map<string, MfSearchItem[]>();
 
+// Lazy-loaded supplemental scheme index for funds >= 149000 (JioBlackRock, Zerodha, Groww, etc.)
+let supplementalCache: MfSearchItem[] | null = null;
+
+async function getSupplementalSchemes(): Promise<MfSearchItem[]> {
+  if (!supplementalCache) {
+    try {
+      const mod = await import('../data/recentSchemes.json');
+      supplementalCache = (mod.default || mod) as MfSearchItem[];
+    } catch (e) {
+      console.warn('Could not load supplemental schemes:', e);
+      supplementalCache = [];
+    }
+  }
+  return supplementalCache;
+}
+
+async function searchSupplemental(query: string): Promise<MfSearchItem[]> {
+  const cleanQ = query.trim();
+  const lowerQ = cleanQ.toLowerCase();
+
+  // Expand common compound terms like JioBlackRock -> Jio BlackRock
+  const expandedQuery = lowerQ
+    .replace(/jioblackrock/g, 'jio blackrock')
+    .replace(/paragparikh/g, 'parag parikh');
+
+  const tokens = expandedQuery.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  const schemes = await getSupplementalSchemes();
+  const matched: MfSearchItem[] = [];
+
+  for (let i = 0; i < schemes.length; i++) {
+    const item = schemes[i];
+    const normName = item.schemeName.toLowerCase().replace(/[^a-z0-9]/g, ' ');
+    const codeMatch = String(item.schemeCode) === cleanQ;
+
+    if (codeMatch || tokens.every((t) => normName.includes(t))) {
+      matched.push(item);
+      if (matched.length >= 50) break;
+    }
+  }
+  return matched;
+}
+
 /**
  * Parse DD-MM-YYYY string to UTC timestamp at midnight
  */
@@ -75,7 +120,8 @@ export function parseYyyyMmDd(dateStr: string): number {
 }
 
 /**
- * Search mutual fund schemes by name or keywords
+ * Search mutual fund schemes by name, keywords, or numeric scheme code.
+ * Searches both the supplemental index (JioBlackRock, Zerodha, etc.) and remote AMFI index.
  */
 export async function searchMutualFunds(query: string): Promise<MfSearchItem[]> {
   const cleanQuery = query.trim();
@@ -86,27 +132,59 @@ export async function searchMutualFunds(query: string): Promise<MfSearchItem[]> 
     return searchCache.get(lowerQuery)!;
   }
 
+  // 1. Search supplemental recent schemes index (covers JioBlackRock, Groww, Zerodha, etc.)
+  const localMatches = await searchSupplemental(cleanQuery);
+
+  // 2. Query remote mfapi search (covers older legacy schemes)
+  let remoteResults: MfSearchItem[] = [];
   try {
     const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(cleanQuery)}`);
-    if (!res.ok) throw new Error(`Search failed with status ${res.status}`);
-    const results: MfSearchItem[] = await res.json();
-    
-    // Sort Direct Plan - Growth options towards the top if matching
-    const sorted = results.sort((a, b) => {
-      const aDirect = a.schemeName.toLowerCase().includes('direct') ? 1 : 0;
-      const bDirect = b.schemeName.toLowerCase().includes('direct') ? 1 : 0;
-      if (bDirect !== aDirect) return bDirect - aDirect;
-      const aGrowth = a.schemeName.toLowerCase().includes('growth') ? 1 : 0;
-      const bGrowth = b.schemeName.toLowerCase().includes('growth') ? 1 : 0;
-      return bGrowth - aGrowth;
-    });
-
-    searchCache.set(lowerQuery, sorted.slice(0, 40));
-    return sorted.slice(0, 40);
+    if (res.ok) {
+      remoteResults = await res.json();
+    }
   } catch (err) {
-    console.error('MF Search Error:', err);
-    return [];
+    console.warn('Remote search request failed, relying on local index:', err);
   }
+
+  // 3. If query is a numeric AMFI code and not yet in results, fetch it directly
+  if (/^\d{5,7}$/.test(cleanQuery) && !localMatches.some((m) => String(m.schemeCode) === cleanQuery)) {
+    try {
+      const direct = await getSchemeInfo(cleanQuery);
+      if (direct) {
+        localMatches.unshift({
+          schemeCode: Number(direct.schemeCode),
+          schemeName: direct.schemeName,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Merge and deduplicate by schemeCode
+  const seenCodes = new Set<number>();
+  const combined: MfSearchItem[] = [];
+
+  for (const item of [...localMatches, ...remoteResults]) {
+    if (!seenCodes.has(item.schemeCode)) {
+      seenCodes.add(item.schemeCode);
+      combined.push(item);
+    }
+  }
+
+  // 5. Sort Direct Plan - Growth options towards the top
+  const sorted = combined.sort((a, b) => {
+    const aDirect = a.schemeName.toLowerCase().includes('direct') ? 1 : 0;
+    const bDirect = b.schemeName.toLowerCase().includes('direct') ? 1 : 0;
+    if (bDirect !== aDirect) return bDirect - aDirect;
+    const aGrowth = a.schemeName.toLowerCase().includes('growth') ? 1 : 0;
+    const bGrowth = b.schemeName.toLowerCase().includes('growth') ? 1 : 0;
+    return bGrowth - aGrowth;
+  });
+
+  const finalResults = sorted.slice(0, 40);
+  searchCache.set(lowerQuery, finalResults);
+  return finalResults;
 }
 
 /**

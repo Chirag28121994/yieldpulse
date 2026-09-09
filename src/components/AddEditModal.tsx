@@ -603,7 +603,7 @@ export const AddEditModal: React.FC<AddEditModalProps> = ({
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Type fund name e.g. Parag Parikh Flexi, Mirae Large Cap, Nifty 50..."
+                    placeholder="Search fund name or AMFI code, e.g. JioBlackRock Liquid, Parag Parikh, 153651..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => {
@@ -617,28 +617,37 @@ export const AddEditModal: React.FC<AddEditModalProps> = ({
                 </div>
 
                 {/* Autocomplete Search Dropdown */}
-                {showDropdown && searchResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 z-30 mt-1.5 max-h-56 overflow-y-auto bg-slate-950 border border-slate-700 rounded-xl shadow-2xl divide-y divide-slate-800">
-                    {searchResults.map((item) => (
-                      <button
-                        key={item.schemeCode}
-                        type="button"
-                        onClick={() => handleSelectScheme(item)}
-                        className="w-full text-left px-3.5 py-2.5 hover:bg-cyan-500/10 transition-colors flex items-start justify-between gap-3 group"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 truncate">
-                            {item.schemeName}
-                          </p>
-                          <p className="text-[10px] text-slate-500 font-mono">AMFI #{item.schemeCode}</p>
-                        </div>
-                        {item.schemeName.toLowerCase().includes('direct') && (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-                            Direct
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                {showDropdown && (
+                  <div className="absolute top-full left-0 right-0 z-30 mt-1.5 max-h-60 overflow-y-auto bg-slate-950 border border-slate-700 rounded-xl shadow-2xl divide-y divide-slate-800">
+                    {searchResults.length > 0 ? (
+                      searchResults.map((item) => (
+                        <button
+                          key={item.schemeCode}
+                          type="button"
+                          onClick={() => handleSelectScheme(item)}
+                          className="w-full text-left px-3.5 py-2.5 hover:bg-cyan-500/10 transition-colors flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 truncate">
+                              {item.schemeName}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-mono">AMFI #{item.schemeCode}</p>
+                          </div>
+                          {item.schemeName.toLowerCase().includes('direct') && (
+                            <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                              Direct
+                            </span>
+                          )}
+                        </button>
+                      ))
+                    ) : searchQuery.trim().length >= 2 && !isSearching ? (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        <p className="font-semibold text-slate-300">No mutual fund matching "{searchQuery}"</p>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Tip: You can also paste an AMFI scheme code (e.g. <span className="text-cyan-400 font-mono">153651</span>) directly.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
